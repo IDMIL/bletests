@@ -5,6 +5,8 @@
 #include <WiFiClient.h>
 #include <WiFiUdp.h>
 #include <OSCMessage.h>
+#include "esp_wifi.h"
+
 //#include "AppleMidi.h"
 
 
@@ -15,16 +17,15 @@
 
 WiFiUDP udp;
 
-char ssid[] = "guitarhub"; //  your network SSID (name)
-char pass[] = "mappings";    // your network password (use for WPA, or use as key for WEP)
+char ssid[] = "LEDE"; //  your network SSID (name)
+char pass[] = "";    // your network password (use for WPA, or use as key for WEP)
 
 //IPAddress local_IP(192,168,88,88);
 //IPAddress gateway(192,168,88,81);
 //IPAddress subnet(255,255,0,0);
 
-IPAddress destIP(192,168,5,200); //johnty's mac tower on guitarhub
+IPAddress destIP(192, 168, 1, 200); //
 const unsigned int destPort = 7000;
-OSCMessage oscMsg("/test");
 
 
 unsigned long t0 = millis();
@@ -36,8 +37,9 @@ bool isConnected = false;
 // -----------------------------------------------------------------------------
 void setup()
 {
+  esp_wifi_set_ps(WIFI_PS_NONE);
   // Serial communications and wait for port to open:
-  oscMsg.add((int32_t)1);
+  //oscMsg.add((int32_t)1);
   Serial.begin(115200);
   while (!Serial) {
     ; // wait for serial port to connect. Needed for Leonardo only
@@ -51,7 +53,7 @@ void setup()
 
   Serial.print(F("Connecting to WiFi..."));
   if (!SOFTAP) {
-    WiFi.begin(ssid,pass);
+    WiFi.begin(ssid, pass);
   }
   else {
     WiFi.softAP(ssid, pass);
@@ -72,32 +74,39 @@ void setup()
   Serial.print(F("IP address is "));
   if (SOFTAP) Serial.println(WiFi.softAPIP());
   else Serial.println(WiFi.localIP());
+
+  t0 = millis();
 }
 
 // -----------------------------------------------------------------------------
 //
 // -----------------------------------------------------------------------------
-bool armed = true;
+bool armed = false;
+bool valChanged;
+int send_interval = 100;
+int preVal = 0;;
 
 void loop()
 {
+  armed = false;
+  int val = digitalRead(D0);
+  if (val != preVal)
+    valChanged = true;
+  else
+    valChanged = false;
+    
+  OSCMessage oscMsg("/a");
+  udp.beginPacket(destIP, destPort);
+  oscMsg.add(val);
+  oscMsg.send(udp);
+  long t1 = millis();
+  int diff = t1 - t0;
+  if ( (diff >= send_interval) || (valChanged && (val == 1)) )
+    armed = true;
 
-  if (isConnected) {
-    t0 = millis();
-    if (digitalRead(D0) == LOW && !armed) {
-      armed = true;
-      //AppleMIDI.noteOff(84, 0, 1);
-    }
-    if (digitalRead(D0) == HIGH && armed) {
-      //AppleMIDI.noteOn(84, 127, 1);
-      delay(2);
-      udp.beginPacket(destIP, destPort);
-      oscMsg.send(udp);
-      udp.endPacket();
-      armed = false;
-      Serial.println(".");
-    }
-
+  if (isConnected && armed) {
+    udp.endPacket();
+    t0 = t1;
   }
+  preVal = val;
 }
-
